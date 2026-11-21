@@ -260,7 +260,7 @@ class TTS(tts.TTS):
             ) from None
         except Exception as e:
             # the URL contains the Auth ID, so don't chain the original error.
-            raise APIConnectionError(type(e).__name__) from None
+            raise _connection_error(e) from None
 
     async def _close_ws(self, ws: aiohttp.ClientWebSocketResponse) -> None:
         await ws.close()
@@ -354,7 +354,7 @@ class TTS(tts.TTS):
         except asyncio.TimeoutError:
             raise APITimeoutError() from None
         except Exception as e:
-            raise APIConnectionError(type(e).__name__) from None
+            raise _connection_error(e) from None
 
         return [
             Voice(
@@ -425,7 +425,7 @@ class ChunkedStream(tts.ChunkedStream):
         except asyncio.TimeoutError:
             raise APITimeoutError() from None
         except Exception as e:
-            raise APIConnectionError(type(e).__name__) from None
+            raise _connection_error(e) from None
 
 
 class SynthesizeStream(tts.SynthesizeStream):
@@ -598,7 +598,7 @@ class SynthesizeStream(tts.SynthesizeStream):
                     message=e.message, status_code=e.status, request_id=None, body=None
                 ) from None
             if isinstance(e, Exception):
-                raise APIConnectionError(type(e).__name__) from e
+                raise _connection_error(e) from None
             raise
 
         pool.put(ws)
@@ -627,6 +627,14 @@ def _words(event: dict[str, Any]) -> list[TimedString]:
     if text:
         words.append(TimedString(text=text, start_time=start, end_time=end))
     return words
+
+
+def _connection_error(e: BaseException) -> APIConnectionError:
+    # aiohttp errors can carry the request URL and headers, which include the credentials,
+    # so only their type is kept. Other errors (no http session, a bad argument) keep their text.
+    if isinstance(e, aiohttp.ClientError):
+        return APIConnectionError(type(e).__name__)
+    return APIConnectionError(f"{type(e).__name__}: {e}")
 
 
 def _koyal_error(event: dict[str, Any]) -> APIError:

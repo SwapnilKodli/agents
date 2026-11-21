@@ -11,6 +11,7 @@ and thinks with an LLM on Groq.
 
 import json
 import logging
+from collections.abc import AsyncIterable
 from dataclasses import asdict, dataclass
 
 from dotenv import load_dotenv
@@ -64,17 +65,22 @@ Kaise bolna hai:
 - Natural Hinglish, jaise Indian support agents bolte hain. Hindi words Devanagari me, English words
   (order, delivery, address, cash, UPI) Latin script me. Example:
   "नमस्ते रोहन जी, मैं Riya बोल रही हूँ, आपके order के बारे में call किया था।"
-- Har reply 1-2 chhote sentences. Ye phone call hai.
-- Koi markdown, emoji ya brackets nahi. Jo bhi likhengi, woh bola jayega.
+- Aap mahila hain: apne liye hamesha feminine verbs, jaise "बोल रही हूँ", "कर देती हूँ"। Kabhi "रहा हूँ" nahi.
+- Har reply 1-2 chhote sentences, aur ek baar me sirf ek sawaal. Phir customer ke jawab ka
+  intezaar karein. Customer ki taraf se kabhi jawab mat likhiye, aur jawab sune bina koi tool
+  call mat kijiye.
+- Jo bhi likhengi, woh bola jayega. Koi markdown, emoji, brackets, "---" ya stage directions nahi.
 - Customer English me bole to English me jawab dein.
 
 Flow:
 1. Naam confirm karein aur batayein ki {amount} rupaye ke COD order ke liye call hai.
 2. Items aur delivery slot confirm karein.
-3. Address padh kar confirm karein. Correction ya landmark mile to update_address.
+3. Address padh kar confirm karein. Customer correction ya landmark bataye to pehle update_address
+   call karein, phir batayein ki add ho gaya.
 4. Ek baar offer karein: abhi UPI se pay karein to {discount} rupaye off. Mana karein to push mat karein.
-5. Faisla hone par confirm_order, cancel_order ya reschedule_delivery.
-6. Thank you bolkar end_call.
+5. Customer ka faisla sunte hi confirm_order, cancel_order ya reschedule_delivery. Jo customer keh
+   chuka hai, woh dobara mat poochiye.
+6. Ek chhoti line me thank you bolkar end_call. Uske baad kuch mat bolein.
 
 Guardrails:
 - "Call mat karo" ya "don't call me" sunte hi mark_do_not_call, maafi maangein, end_call.
@@ -90,7 +96,8 @@ class Riya(Agent):
                 amount=order.amount_inr,
                 discount=order.prepaid_discount_inr,
             ),
-            tools=[EndCallTool(end_instructions="thank the customer and say goodbye in Hinglish")],
+            # Riya says goodbye before calling end_call, so hang up without another reply
+            tools=[EndCallTool(end_instructions=None)],
         )
         self.order = order
         self.outcome: dict[str, str] = {}
@@ -144,17 +151,37 @@ class Riya(Agent):
         return self._record("do_not_call")
 
 
+async def drop_stage_directions(text: AsyncIterable[str]) -> AsyncIterable[str]:
+    """Stop speaking at the first "(" of a reply.
+
+    gpt-oss sometimes keeps writing after its question, e.g. "(Waiting for customer response)".
+    Riya never needs parentheses, so nothing from an opening one onward is spoken.
+    """
+    stopped = False
+    async for chunk in text:
+        if stopped:
+            continue
+        head, paren, _ = chunk.partition("(")
+        stopped = bool(paren)
+        if head:
+            yield head
+
+
+def create_session() -> AgentSession:
+    return AgentSession(
+        stt=deepgram.STT(model="nova-3", language="multi"),
+        llm=groq.LLM(model="openai/gpt-oss-120b", reasoning_effort="medium", temperature=0.4),
+        tts=plivo.TTS(voice="Hiqcy02wuf8a4sCMcdNO", language="hi"),  # Ritika
+        tts_text_transforms=["filter_emoji", "filter_markdown", drop_stage_directions],
+    )
+
+
 server = AgentServer()
 
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
-    session = AgentSession(
-        stt=deepgram.STT(model="nova-3", language="multi"),
-        llm=groq.LLM(model="openai/gpt-oss-120b"),
-        tts=plivo.TTS(voice="Hiqcy02wuf8a4sCMcdNO", language="hi"),  # Ritika
-        tts_text_transforms=["filter_emoji", "filter_markdown"],
-    )
+    session = create_session()
     await session.start(agent=Riya(DEMO_ORDER), room=ctx.room)
 
 

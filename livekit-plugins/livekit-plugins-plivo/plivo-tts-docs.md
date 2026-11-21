@@ -56,15 +56,14 @@ from livekit.agents import AgentSession
 from livekit.plugins import plivo
 
 session = AgentSession(
-   tts=plivo.TTS(
-      voice="6uWzc4xFj31t4jNJUaED",  # Meera, Hindi
-      language="hi",
-      sample_rate=24000,
-      pace=1.0,
-   ),
-   # ... llm, stt, etc.
+    tts=plivo.TTS(
+        voice="6uWzc4xFj31t4jNJUaED",  # Meera, Hindi
+        language="hi",
+        sample_rate=24000,
+        pace=1.0,
+    ),
+    # ... llm, stt, etc.
 )
-
 ```
 
 To generate a clip outside a session, call `synthesize()`, which uses Koyal's batch API:
@@ -72,7 +71,6 @@ To generate a clip outside a session, call `synthesize()`, which uses Koyal's ba
 ```python
 tts = plivo.TTS(voice="H25SvwivznBqsIx1R7hX")  # Nisha, English (India)
 frame = await tts.synthesize("Your order is out for delivery.").collect()
-
 ```
 
 ### Parameters
@@ -109,7 +107,6 @@ Koyal voices are referenced by ID. To list every voice on your account:
 voices = await plivo.TTS().list_voices()
 for v in voices:
     print(v.id, v.name, v.gender, v.language)
-
 ```
 
 | Language | Female | Male |

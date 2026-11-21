@@ -13,6 +13,7 @@ through the `livekit-plugins-plivo` plugin.
 |---|---|---|
 | `say.py` | Koyal reads three lines, in Hindi, Indian English and Tamil | Plivo |
 | `agent.py` | Riya, the full voice agent | Plivo, Deepgram, Groq |
+| `simulate_call.py` | A scripted caller talks to Riya; records `call.wav` and per-turn latency | Plivo, Deepgram, Groq |
 
 ## Setup
 
@@ -48,13 +49,34 @@ Riya speaks first. Answer in Hindi, English or a mix, the way you would on a rea
 correcting the address ("Total petrol pump ke paas hai"), refusing the UPI offer, or saying
 "mujhe call mat karo".
 
-A typical call:
+A call recorded with `simulate_call.py` (the caller is Koyal's Aman voice):
 
-> **Riya:** नमस्ते रोहन जी, मैं Riya बोल रही हूँ, आपके चार सौ छियासी रुपये के COD order के बारे में call किया था।
-> **You:** हाँ, बोलिए।
-> **Riya:** आपके order में Paneer Butter Masala, 2 Butter Naan और Gulab Jamun हैं, delivery आज शाम 7 से 8 बजे है। सही है?
-> **You:** Haan sahi hai, bas landmark add kar do, Total petrol pump ke paas.
-> **Riya:** *(calls `update_address`)* ठीक है, landmark जोड़ दिया।
+> **Riya:** नमस्ते रोहन जी, मैं Riya बोल रही हूँ, आपके 486 रुपये के COD order के बारे में कॉल किया था। क्या मैं आपका नाम सही समझ रही हूँ?
+> **Caller:** हाँ, मैं रोहन बोल रहा हूँ।
+> **Riya:** धन्यवाद रोहन जी। आपका order जिसमें Paneer Butter Masala, 2 Butter Naan और Gulab Jamun हैं, आज शाम 7 से 8 बजे के slot में डिलीवर होगा, क्या यह सही है?
+> **Caller:** हाँ, order सही है।
+> **Riya:** आपका delivery address है: Flat 302, Sai Residency, HSR Layout Sector 2, Bengaluru। क्या यह सही है?
+> **Caller:** Address सही है, बस landmark add कर दो, Total petrol pump के पास।
+> *`update_address(correction="Total petrol pump के पास")`*
+> **Riya:** धन्यवाद, अब आपका address "Flat 302, Sai Residency, HSR Layout Sector 2, Bengaluru, Total petrol pump के पास" हो गया है। अभी UPI से payment करने पर 20 रुपये की छूट मिल सकती है, क्या आप UPI से पे करना चाहेंगे?
+> **Caller:** नहीं, cash ही दूँगा, UPI नहीं चाहिए।
+> *`confirm_order()`*
+> **Riya:** आपका COD order confirm हो गया है, डिलीवरी आज 7 से 8 बजे के बीच होगी। धन्यवाद, फिर मिलते हैं!
+> *`end_call()`*
+
+## Test without a phone
+
+```bash
+python simulate_call.py
+```
+
+A caller voiced by Koyal answers Riya through the same speech-to-text, LLM and Koyal pipeline as
+a real call, in real time. The script writes `call.wav` and `call.json` (transcript, tool calls,
+and how long the caller waited for each reply). Across 16 simulated calls, Koyal's time to first
+audio was 48 ms at the median (p90 70 ms, 54 replies), measured from India. With this agent's
+settings, the caller waited 1.44 s at the median (p90 1.96 s, 25 turns) from the end of their
+sentence to Riya's first word; nearly all of it is end-of-turn detection, speech-to-text and the
+LLM.
 
 To run Riya in a LiveKit room instead, use `python agent.py dev` with `LIVEKIT_URL`,
 `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` set, and join from the
@@ -67,7 +89,12 @@ To run Riya in a LiveKit room instead, use `python agent.py dev` with `LIVEKIT_U
   script, which is how Koyal's Hindi voices expect Hinglish.
 - **Hearing:** Deepgram `nova-3` with `language="multi"`, which transcribes Hindi and English in
   the same sentence.
-- **Thinking:** `openai/gpt-oss-120b` on Groq.
+- **Thinking:** `openai/gpt-oss-120b` on Groq with `reasoning_effort="medium"`. At the default
+  `low`, it sometimes answered its own questions or called `confirm_order` before the customer
+  replied.
+- **Guarding speech:** gpt-oss occasionally keeps writing after a question, e.g.
+  `(Waiting for customer response)`. `drop_stage_directions` is a TTS text transform that stops
+  speaking at the first `(` of a reply, so that text reaches the transcript but is never spoken.
 - **Outcomes:** each decision is a `function_tool` on the agent. `EndCallTool` hangs up after the
   goodbye. In production, write `Riya.outcome` back to your order system and pass the real order
   in through job metadata instead of `DEMO_ORDER`.
