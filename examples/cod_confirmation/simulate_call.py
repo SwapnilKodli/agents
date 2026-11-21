@@ -119,6 +119,7 @@ class CallRecorder(AudioOutput):
         self._pushed = 0.0
         self._finish: asyncio.TimerHandle | None = None
         self.first_audio_at: list[float] = []
+        self.segments: list[tuple[float, float]] = []  # when each reply played, in call time
 
     async def capture_frame(self, frame: rtc.AudioFrame) -> None:
         await super().capture_frame(frame)
@@ -136,6 +137,7 @@ class CallRecorder(AudioOutput):
         super().flush()
         if self._segment_start is None:
             return
+        self.segments.append((self._segment_start, self._cursor))
         delay = max(0.0, self._cursor - self._timeline.now())
         pushed = self._pushed
 
@@ -151,6 +153,7 @@ class CallRecorder(AudioOutput):
         if self._segment_start is None:
             return
         played = min(self._pushed, self._timeline.now() - self._segment_start)
+        self.segments.append((self._segment_start, self._segment_start + played))
         # cut what the caller didn't hear out of the recording
         cut = int((self._segment_start + played) * SAMPLE_RATE) * 2
         del self._timeline.tracks["agent"][cut:]
@@ -210,6 +213,7 @@ async def main() -> None:
             break
         await asyncio.sleep(0.6)  # a human pause before answering
         replies_before = len(recorder.first_audio_at)
+        said_at = timeline.now()
         caller.say(pcm)
         line_secs = len(pcm) / 2 / SAMPLE_RATE
         try:
@@ -225,7 +229,9 @@ async def main() -> None:
             if len(recorder.first_audio_at) > replies_before
             else None
         )
-        turns.append({"caller": text, "reply_ms": waited})
+        turns.append(
+            {"caller": text, "start": round(said_at, 2), "end": round(ended, 2), "reply_ms": waited}
+        )
         print(f"caller: {text}\n  reply after {waited} ms")
 
     await asyncio.wait([asyncio.ensure_future(closed.wait())], timeout=15)
@@ -240,7 +246,13 @@ async def main() -> None:
             transcript.append({"role": item.role, "text": item.text_content})
         elif item.type == "function_call":
             transcript.append({"role": "tool", "text": f"{item.name}({item.arguments})"})
-    report = {"turns": turns, "koyal_ttfb_ms": koyal_ttfb, "transcript": transcript}
+    replies = [{"start": round(a, 2), "end": round(b, 2)} for a, b in recorder.segments]
+    report = {
+        "turns": turns,
+        "replies": replies,
+        "koyal_ttfb_ms": koyal_ttfb,
+        "transcript": transcript,
+    }
     out.with_suffix(".json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
