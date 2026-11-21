@@ -41,6 +41,7 @@ from livekit.plugins import (
     lmnt,
     mistralai,
     neuphonic,
+    plivo,
     resemble,
     rime,
     speechify,
@@ -154,6 +155,14 @@ SYNTHESIZE_TTS = [
             "proxy-upstream": "api.cartesia.ai:443",
         },
         id="cartesia",
+    ),
+    pytest.param(
+        lambda: {
+            # the suite checks English speech, so use an English voice (Hailey, en-US)
+            "tts": plivo.TTS(voice="lC7qzMoRE7SSjaNCVeff"),
+            "proxy-upstream": "api.plivo.com:443",
+        },
+        id="plivo",
     ),
     pytest.param(
         lambda: {
@@ -482,6 +491,14 @@ STREAM_TTS = [
             "proxy-upstream": "api.cartesia.ai:443",
         },
         id="cartesia",
+    ),
+    pytest.param(
+        lambda: {
+            # the suite checks English speech, so use an English voice (Hailey, en-US)
+            "tts": plivo.TTS(voice="lC7qzMoRE7SSjaNCVeff"),
+            "proxy-upstream": "api.plivo.com:443",
+        },
+        id="plivo",
     ),
     pytest.param(
         lambda: {
