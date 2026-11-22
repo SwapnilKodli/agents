@@ -82,11 +82,13 @@ class CallerInput(AudioInput):
         self._pending = bytearray()
         self._samples = SAMPLE_RATE * FRAME_MS // 1000
         self._next = time.perf_counter()
+        self._cursor: float | None = None  # where the next caller frame goes in the recording
         self.done_speaking = asyncio.Event()
 
     def say(self, pcm: bytes) -> None:
         self.done_speaking.clear()
         self._pending.extend(pcm)
+        self._cursor = None
 
     async def __anext__(self) -> rtc.AudioFrame:
         self._next += FRAME_MS / 1000
@@ -95,7 +97,12 @@ class CallerInput(AudioInput):
         if self._pending:
             chunk = bytes(self._pending[:size]).ljust(size, b"\x00")
             del self._pending[:size]
-            self._timeline.write("caller", self._timeline.now(), chunk)
+            # Lay frames end to end: stamping each with the wall clock leaves gaps and
+            # overlaps wherever the event loop wakes late, and the caller's voice breaks up.
+            if self._cursor is None:
+                self._cursor = self._timeline.now()
+            self._timeline.write("caller", self._cursor, chunk)
+            self._cursor += FRAME_MS / 1000
             if not self._pending:
                 self.done_speaking.set()
         else:
